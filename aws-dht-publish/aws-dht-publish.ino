@@ -26,6 +26,9 @@
 #include "AWSWebSocketClient.h"
 #include "CircularByteBuffer.h"
 
+//ArduinoJson
+#include <ArduinoJson.h>
+
 //  --------- Config ---------- //
 //AWS IOT config, change these:
 char wifi_ssid[]       = "xx";
@@ -40,15 +43,23 @@ int port = 443;
 // If stuff isn't working right, watch the console:
 #define DEBUG_PRINT 1
 
-#define DHTPIN 4
+#define DHTPIN D2
+#define LEDPIN D1
+#define LIGHTSENSOR D0
+#define RELAY1 D5
+#define RELAY2 D6
 #define DHTTYPE DHT22 //Set for 11, 21, or 22
+
+//variable for lightsensor
+int lastLightState;
+int currentLightState=0;
 
 //MQTT config
 const int maxMQTTpackageSize = 512;
 const int maxMQTTMessageHandlers = 1;
 // ---------- /Config ----------//
 
-DHT dht(DHTPIN, DHTTYPE);
+DHT dht(DHTPIN, DHTTYPE, 26);
 ESP8266WiFiMulti WiFiMulti;
 
 AWSWebSocketClient awsWSclient(1000);
@@ -70,8 +81,42 @@ char* generateClientID () {
 //count messages arrived
 int arrivedcount = 0;
 
-//the MAC address of the WIFI
-byte mac[6];
+//Detect light level change
+void detectLightChange () {
+  lastLightState = currentLightState;
+  currentLightState= digitalRead(LIGHTSENSOR);
+  if(lastLightState!=currentLightState)
+  {
+    Serial.println("changed");
+    if(currentLightState==0)
+    {
+      Serial.println("LIGHT LEVEL IS HIGH");
+    }
+    else Serial.println("LIGHT LEVEL IS LOW");
+  }
+}
+
+//function for turning on or off relay
+void turnOnRelay1 () {
+  digitalWrite(RELAY1,LOW);
+}
+void turnOnRelay2 () {
+  digitalWrite(RELAY2,LOW);
+}
+void turnOffRelay1 () {
+  digitalWrite(RELAY1,HIGH);
+}
+void turnOffRelay2 () {
+  digitalWrite(RELAY2,HIGH);
+}
+
+//function for turning on or off led
+void turnOnLed () {
+  digitalWrite(LEDPIN,HIGH);
+}
+void turnOffLed () {
+  digitalWrite(LEDPIN,LOW);
+}
 
 //callback to handle mqtt messages
 void messageArrived(MQTT::MessageData& md)
@@ -93,24 +138,57 @@ void messageArrived(MQTT::MessageData& md)
     char* msg = new char[message.payloadlen+1]();
     memcpy (msg,message.payload,message.payloadlen);
     Serial.println(msg);
+
+    StaticJsonBuffer<200> jsonBuffer;
+    JsonObject& root = jsonBuffer.parseObject(msg);
+
+    int led = root["led"];    
+    int relay1 = root["relay1"];
+    int relay2 = root["relay2"];
+
     delete msg;
+
+    Serial.print("LED is :");
+    Serial.println(led);
+    Serial.println("relay1 is :");
+    Serial.println(relay1);
+    Serial.println("relay2 is :");
+    Serial.println(relay2);
+
+    //right now sets {"led":1} in lambda func to turn on the led
+    //under a certain threshold for the temp set in aws iot rule condition
+    if (led == 1) {
+      turnOnLed();
+      delay(1000);
+      turnOffLed();
+    }
+
+    if (relay1 == 1) {
+      turnOnRelay1();
+      delay(2000);
+      turnOffRelay1();
+    }
+
+    if (relay2 == 1) {
+      turnOnRelay2();
+      delay(2000);
+      turnOffRelay2();
+    }
   }
 }
 
 //connects to websocket layer and mqtt layer
 bool connect () {
-
     if (client == NULL) {
       client = new MQTT::Client<IPStack, Countdown, maxMQTTpackageSize, maxMQTTMessageHandlers>(ipstack);
     } else {
 
-      if (client->isConnected ()) {    
+      if (client->isConnected ()) {
         client->disconnect ();
-      }  
+      }
       delete client;
       client = new MQTT::Client<IPStack, Countdown, maxMQTTpackageSize, maxMQTTMessageHandlers>(ipstack);
     }
-
 
     //delay is not necessary... it just help us to get a "trustful" heap space value
     delay (1000);
@@ -135,11 +213,11 @@ bool connect () {
         Serial.println("websocket layer connected");
       }
     }
-    
+
     if (DEBUG_PRINT) {
       Serial.println("MQTT connecting");
     }
-    
+
     MQTTPacket_connectData data = MQTTPacket_connectData_initializer;
     data.MQTTVersion = 3;
     char* clientID = generateClientID ();
@@ -163,12 +241,10 @@ bool connect () {
 //subscribe to a mqtt topic
 void subscribe () {
    //subscrip to a topic
-    int rc = client->subscribe(aws_topic, MQTT::QOS0, messageArrived);
-    if (rc != 0) {
-      if (DEBUG_PRINT) {
-        Serial.print("rc from MQTT subscribe is ");
-        Serial.println(rc);
-      }
+    int rc = client->subscribe(aws_topic, MQTT::QOS0, messageArrived);    
+    if (rc != 0) {            
+      Serial.print("rc from MQTT subscribe is ");
+      Serial.println(rc);
       return;
     }
     if (DEBUG_PRINT) {
@@ -177,9 +253,9 @@ void subscribe () {
 }
 
 void setup() {
-    Serial.begin (115200);   
+    Serial.begin (115200);
     WiFiMulti.addAP(wifi_ssid, wifi_password);
-    
+
     while(WiFiMulti.run() != WL_CONNECTED) {
         delay(100);
         if (DEBUG_PRINT) {
@@ -188,22 +264,9 @@ void setup() {
     }
     if (DEBUG_PRINT) {
       Serial.println ("\nconnected to network " + String(wifi_ssid) + "\n");
-      WiFi.macAddress(mac);
-      Serial.print("MAC: ");
-      Serial.print(mac[5],HEX);
-      Serial.print(":");
-      Serial.print(mac[4],HEX);
-      Serial.print(":");
-      Serial.print(mac[3],HEX);
-      Serial.print(":");
-      Serial.print(mac[2],HEX);
-      Serial.print(":");
-      Serial.print(mac[1],HEX);
-      Serial.print(":");
-      Serial.println(mac[0],HEX);
     }
 
-    //fill AWS parameters    
+    //fill AWS parameters
     awsWSclient.setAWSRegion(aws_region);
     awsWSclient.setAWSDomain(aws_endpoint);
     awsWSclient.setAWSKeyID(aws_key);
@@ -211,15 +274,28 @@ void setup() {
     awsWSclient.setUseSSL(true);
 
     dht.begin();
+
+    //setup for ledpin
+    pinMode(LEDPIN,OUTPUT);
+
+    //setup for lightsensor
+    pinMode(LIGHTSENSOR,INPUT);
+
+    //setup for relay
+    pinMode(RELAY1,OUTPUT);
+    pinMode(RELAY2,OUTPUT);
 }
 
 void loop() {
   // Reading temperature or humidity takes about 250 milliseconds!
   // Sensor readings may also be up to 2 seconds 'old' (its a very slow sensor)
-  delay(50000);
+  delay(10000);
+
+  detectLightChange();
+
   String h = String(dht.readHumidity());    // Read temperature as Fahrenheit (isFahrenheit = true)
   String c = String(dht.readTemperature());
-  
+
   if (isnan(dht.readHumidity()) || isnan(dht.readTemperature())) {
     Serial.println("Failed to read from DHT sensor!");
     return;
@@ -239,11 +315,12 @@ void loop() {
   const char *publish_message = values.c_str();
 
   //keep the mqtt up and running
-  if (awsWSclient.connected ()) {    
+  if (awsWSclient.connected ()) {
       client->yield();
-      
-      subscribe (); 
-      //publish 
+
+      subscribe ();
+
+      //publish
       MQTT::Message message;
       char buf[1000];
       strcpy(buf, publish_message);
@@ -252,9 +329,9 @@ void loop() {
       message.dup = false;
       message.payload = (void*)buf;
       message.payloadlen = strlen(buf)+1;
-      int rc = client->publish(aws_topic, message);  
+      int rc = client->publish(aws_topic, message);
   } else {
     //handle reconnection
     connect ();
-  }
+}
 }

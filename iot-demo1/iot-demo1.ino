@@ -29,8 +29,8 @@
 #define DEBUG_PRINT 1
 
 #define DHTPIN D2
-#define LEDPIN D1
-#define LIGHTSENSOR D0
+#define LEDPIN D7
+#define LIGHTSENSOR D1
 #define RELAY1 D5
 #define RELAY2 D6
 #define DHTTYPE DHT22 //Set for 11, 21, or 22
@@ -43,6 +43,20 @@ int currentLightState=LOW;
 const int maxMQTTpackageSize = 512;
 const int maxMQTTMessageHandlers = 1;
 // ---------- /Config ----------//
+char* AWS_ENDPOINT = "**";
+const char* AWS_KEY = "**";
+const char* AWS_SECRET = "**";
+const char* AWS_REGION = "**";
+const char* AWS_THERMAL_TOPIC = "$aws/things/MitraisThermalSensorTest1/shadow/devicebali/thermal";
+const char* AWS_LIGHT_TOPIC = "$aws/things/MitraisThermalSensorTest1/shadow/devicebali/lightChange";
+const char* AWS_SUBSCRIBED_TOPIC = "$aws/things/MitraisThermalSensorTest1/shadow/devicebali/subscribe";                             
+const int PORT = 443;
+const char* DEVICE_ID = "**";
+const char* WIFI_SSID = "**";
+const char* WIFI_PASSWORD = "**";
+unsigned long PUBLISH_THERMAL_INTERVAL = 20000; //equals to 10 secs
+unsigned long DETECT_LIGHT_INTERVAL = 5000; //equals to 5 secs
+unsigned long SUBSCRIBE_TOPIC_INTERVAL = 5000;
 
 DHT dht(DHTPIN, DHTTYPE, 26);
 ESP8266WiFiMulti WiFiMulti;
@@ -162,7 +176,7 @@ bool connect () {
       Serial.println (")");
     }
 
-   int rc = ipstack.connect(mitrais::config::aws::AWS_ENDPOINT, mitrais::config::aws::PORT);
+   int rc = ipstack.connect(AWS_ENDPOINT, PORT);
     if (rc != 1)
     {
       if (DEBUG_PRINT) {
@@ -223,8 +237,8 @@ void publishMessage(const char* topic, String& values) {
 //subscribes to a mqtt topic
 void updateTopicSubscription () {
   unsigned long currentMillis = millis();
-  if (currentMillis - prevSubscriptionMillis >= mitrais::config::SUBSCRIBE_TOPIC_INTERVAL) {
-    int rc = client->subscribe(mitrais::config::aws::AWS_SUBSCRIBED_TOPIC, MQTT::QOS0, messageArrived);    
+  if (currentMillis - prevSubscriptionMillis >= SUBSCRIBE_TOPIC_INTERVAL) {
+    int rc = client->subscribe(AWS_SUBSCRIBED_TOPIC, MQTT::QOS0, messageArrived);    
     if (rc != 0) {       
       if (DEBUG_PRINT){
         Serial.print("rc from MQTT subscribe is ");
@@ -238,7 +252,7 @@ void updateTopicSubscription () {
 //periodically reads the light level change and publishes to the topic upon changed
 void updateReadLightChange () {
   unsigned long currentMillis = millis();
-  if (currentMillis - prevLightMillis >= mitrais::config::DETECT_LIGHT_INTERVAL) {
+  if (currentMillis - prevLightMillis >= DETECT_LIGHT_INTERVAL) {
     lastLightState = currentLightState;
     currentLightState = digitalRead(LIGHTSENSOR);
     if(lastLightState!=currentLightState){
@@ -246,8 +260,8 @@ void updateReadLightChange () {
         Serial.println(currentLightState == HIGH ? "LIGHT LEVEL IS OFF" : "LIGHT LEVEL IS ON"); 
       }
       //publish to aws
-      String values = "{\"deviceId\": \"" + String(mitrais::config::DEVICE_ID) + "\",\"state\":{\"lightState\": " + String(currentLightState) + "}}";
-      publishMessage(mitrais::config::aws::AWS_LIGHT_TOPIC, values);
+      String values = "{\"deviceId\": \"" + String(DEVICE_ID) + "\",\"state\":{\"lightState\": " + String(currentLightState) + "}}";
+      publishMessage(AWS_LIGHT_TOPIC, values);
     }
   }
 }
@@ -255,7 +269,7 @@ void updateReadLightChange () {
 //periodically reads the current thermal data and sends to the web server
 void updateReadThermalData() {
   unsigned long currentMillis = millis();
-  if (currentMillis - prevThermalMillis >= mitrais::config::PUBLISH_THERMAL_INTERVAL) {
+  if (currentMillis - prevThermalMillis >= PUBLISH_THERMAL_INTERVAL) {
     prevThermalMillis = currentMillis;
     
     String h = String(dht.readHumidity());    // Read temperature as Fahrenheit (isFahrenheit = true)
@@ -277,14 +291,14 @@ void updateReadThermalData() {
       }
     };
   
-    String values = "{\"deviceId\": \"" + String(mitrais::config::DEVICE_ID) + "\",\"state\":{\"temp\": " + c + ",\"humidity\": " + h + "}}";
-    publishMessage(mitrais::config::aws::AWS_THERMAL_TOPIC, values);
+    String values = "{\"deviceId\": \"" + String(DEVICE_ID) + "\",\"state\":{\"temp\": " + c + ",\"humidity\": " + h + "}}";
+    publishMessage(AWS_THERMAL_TOPIC, values);
   }
 }
 
 void setup() {
     Serial.begin (9600);
-    WiFiMulti.addAP(mitrais::config::WIFI_SSID, mitrais::config::WIFI_PASSWORD);
+    WiFiMulti.addAP(WIFI_SSID, WIFI_PASSWORD);
 
     while(WiFiMulti.run() != WL_CONNECTED) {
         delay(100);
@@ -293,15 +307,16 @@ void setup() {
         }
     }
     if (DEBUG_PRINT) {
-      Serial.println ("\nconnected to network " + String(mitrais::config::WIFI_SSID) + "\n");
+      Serial.println ("\nconnected to network " + String(WIFI_SSID) + "\n");
     }
 
     //fill AWS parameters
-    awsWSclient.setAWSRegion(mitrais::config::aws::AWS_REGION);
-    awsWSclient.setAWSDomain(mitrais::config::aws::AWS_ENDPOINT);
-    awsWSclient.setAWSKeyID(mitrais::config::aws::AWS_KEY);
-    awsWSclient.setAWSSecretKey(mitrais::config::aws::AWS_SECRET);
+    awsWSclient.setAWSRegion(AWS_REGION);
+    awsWSclient.setAWSDomain(AWS_ENDPOINT);
+    awsWSclient.setAWSKeyID(AWS_KEY);
+    awsWSclient.setAWSSecretKey(AWS_SECRET);
     awsWSclient.setUseSSL(true);
+    connect ();
     //setup dht sensor
     dht.begin();
     //setup for ledpin
@@ -311,6 +326,12 @@ void setup() {
     //setup for relay
     pinMode(RELAY1,OUTPUT);
     pinMode(RELAY2,OUTPUT);
+    digitalWrite(RELAY1,HIGH);
+    digitalWrite(RELAY2,HIGH);
+
+    //check light lavel state     
+    currentLightState = digitalRead(LIGHTSENSOR);
+    Serial.println(currentLightState == HIGH ? "LIGHT LEVEL IS OFF" : "LIGHT LEVEL IS ON"); 
 }
 
 void loop() {  

@@ -22,8 +22,6 @@
 #include "CircularByteBuffer.h"
 //ArduinoJson
 #include <ArduinoJson.h>
-//Mitrais Config
-#include <MitraisConfig.h>
 
 // If stuff isn't working right, watch the console:
 #define DEBUG_PRINT 1
@@ -85,6 +83,9 @@ unsigned long prevThermalMillis = 0;
 unsigned long prevLightMillis = 0;
 unsigned long prevSubscriptionMillis = 0;
 
+//temp variable for the prev temperature after the threshold is exceeded
+float prevTemp = 0.f;
+
 //function for turning on or off relay
 void switchRelay(int relayPin, bool isOn) {
   digitalWrite(relayPin, isOn ? HIGH : LOW);
@@ -121,22 +122,26 @@ void messageArrived(MQTT::MessageData& md) {
     int led = root["led"];    
     int relay1 = root["relay1"];
     int relay2 = root["relay2"];
+    float temperature = root["temp"];
 
     delete msg;
 
-    Serial.print("LED is :");
-    Serial.println(led);
-    Serial.println("relay1 is :");
-    Serial.println(relay1);
-    Serial.println("relay2 is :");
-    Serial.println(relay2);
+    Serial.print("relay1 is : ");
+    Serial.print(relay1);
+    Serial.print(" relay2 is : ");
+    Serial.print(relay2);
 
-    //right now sets {"led":1} in lambda func to turn on the led
+    //right now sets {"led":1,"temp":.f} in lambda func to turn on the led
     //under a certain threshold for the temp set in aws iot rule condition
-    if (led == 1) {
+    if (led == 1 && temperature > 0.f) {
+      if (DEBUG_PRINT) {
+        Serial.print(" LED is : ");
+        Serial.print(led);
+        Serial.print(" Temp is : ");
+        Serial.println(temperature);
+      }
+      prevTemp = temperature;
       switchLed(true);
-      delay(1000);
-      switchLed(false);
     }
 
     if (relay1 == 1) {
@@ -278,9 +283,16 @@ void updateReadThermalData() {
   unsigned long currentMillis = millis();
   if (currentMillis - prevThermalMillis >= PUBLISH_THERMAL_INTERVAL) {
     prevThermalMillis = currentMillis;
-    
+
+    float curTemp = dht.readTemperature();
     String h = String(dht.readHumidity());    // Read temperature as Fahrenheit (isFahrenheit = true)
-    String c = String(dht.readTemperature());
+    String c = String(curTemp);
+
+    //turn off the led once the temp is back to normal again
+    if (curTemp < prevTemp) {
+      prevTemp = 0.f;
+      switchLed(false);
+    }
   
     if (isnan(dht.readHumidity()) || isnan(dht.readTemperature())) {
       if (DEBUG_PRINT) {

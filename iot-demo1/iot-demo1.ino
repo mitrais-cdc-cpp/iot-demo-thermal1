@@ -30,6 +30,7 @@
 
 #define DHTPIN D2
 #define LEDPIN D7
+#define STATUSLEDPIN D0
 #define LIGHTSENSOR D1
 #define RELAY1 D5
 #define RELAY2 D6
@@ -47,9 +48,9 @@ char* AWS_ENDPOINT = "**";
 const char* AWS_KEY = "**";
 const char* AWS_SECRET = "**";
 const char* AWS_REGION = "**";
-const char* AWS_THERMAL_TOPIC = "$aws/things/MitraisThermalSensorTest1/shadow/devicebali/thermal";
-const char* AWS_LIGHT_TOPIC = "$aws/things/MitraisThermalSensorTest1/shadow/devicebali/lightChange";
-const char* AWS_SUBSCRIBED_TOPIC = "$aws/things/MitraisThermalSensorTest1/shadow/devicebali/subscribe";                             
+const char* AWS_THERMAL_TOPIC = "**";
+const char* AWS_LIGHT_TOPIC = "**";
+const char* AWS_SUBSCRIBED_TOPIC = "**";                             
 const int PORT = 443;
 const char* DEVICE_ID = "**";
 const char* WIFI_SSID = "**";
@@ -155,6 +156,7 @@ void messageArrived(MQTT::MessageData& md) {
 //connects to websocket layer and mqtt layer
 bool connect () {
     if (client == NULL) {
+      digitalWrite(STATUSLEDPIN,HIGH);
       client = new MQTT::Client<IPStack, Countdown, maxMQTTpackageSize, maxMQTTMessageHandlers>(ipstack);
     } else {
 
@@ -210,6 +212,7 @@ bool connect () {
     if (DEBUG_PRINT) {
       Serial.println("MQTT connected");
     }
+    digitalWrite(STATUSLEDPIN,LOW);
     return true;
 }
 
@@ -228,7 +231,11 @@ void publishMessage(const char* topic, String& values) {
         message.payload = (void*)buf;
         message.payloadlen = strlen(buf)+1;
         int rc = client->publish(topic, message);
+        digitalWrite(STATUSLEDPIN,HIGH);
+        delay (500);
+        digitalWrite(STATUSLEDPIN,LOW);
     } else {
+      digitalWrite(STATUSLEDPIN,HIGH);
       //handle reconnection
       connect ();
     } 
@@ -298,14 +305,16 @@ void updateReadThermalData() {
 
 void setup() {
     Serial.begin (9600);
+    Serial.print ("\nConnecting to network " + String(WIFI_SSID) + "\n");
     WiFiMulti.addAP(WIFI_SSID, WIFI_PASSWORD);
 
     while(WiFiMulti.run() != WL_CONNECTED) {
         delay(100);
         if (DEBUG_PRINT) {
-          Serial.print (". ");
+          Serial.print (".");
         }
     }
+    Serial.println(".");
     if (DEBUG_PRINT) {
       Serial.println ("\nconnected to network " + String(WIFI_SSID) + "\n");
     }
@@ -315,7 +324,9 @@ void setup() {
     awsWSclient.setAWSDomain(AWS_ENDPOINT);
     awsWSclient.setAWSKeyID(AWS_KEY);
     awsWSclient.setAWSSecretKey(AWS_SECRET);
-    awsWSclient.setUseSSL(true);
+    awsWSclient.setUseSSL(true);    
+    pinMode(STATUSLEDPIN,OUTPUT);
+    digitalWrite(STATUSLEDPIN,HIGH);
     connect ();
     //setup dht sensor
     dht.begin();

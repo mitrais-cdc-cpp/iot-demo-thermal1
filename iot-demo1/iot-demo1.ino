@@ -112,8 +112,8 @@ void messageArrived(MQTT::MessageData& md) {
 
   int led = root["led"];
   float temperature = root["temp"];
-  int relay1 = root["relay1"];
-  int relay2 = root["relay2"];
+  String relay1 = root["relay1"];
+  String relay2 = root["relay2"];
 
   delete msg;
 
@@ -129,28 +129,18 @@ void messageArrived(MQTT::MessageData& md) {
     prevTemp = temperature;
     switchLed(true);
   }
-
-  //turn on relay1
-  if (relay1 == 1) {
-    if (DEBUG_PRINT) {
-      Serial.print("relay1 is : ");
-      Serial.print(relay1);
-    }
-    switchRelay(RELAY1, true);
-    delay(2000);
+  
+  if (relay1.equals("ON")) {
     switchRelay(RELAY1, false);
+  } else if (relay1.equals("OFF"))  {
+    switchRelay(RELAY1, true);
   }
-
-  //turn on relay2
-  if (relay2 == 1) {
-    if (DEBUG_PRINT) {
-      Serial.print(" relay2 is : ");
-      Serial.print(relay2);
-    }
-    switchRelay(RELAY2, true);
-    delay(2000);
+  if (relay2.equals("ON")) {
     switchRelay(RELAY2, false);
+  } else if (relay2.equals("OFF"))  {
+    switchRelay(RELAY2, true);
   }
+ 
 }
 
 //connects to websocket layer and mqtt layer

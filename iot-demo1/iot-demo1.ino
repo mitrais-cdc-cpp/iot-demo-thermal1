@@ -100,61 +100,56 @@ void switchLed(bool isOn) {
 void messageArrived(MQTT::MessageData& md) {
   MQTT::Message &message = md.message;
 
+  char* msg = new char[message.payloadlen+1]();
+  memcpy (msg,message.payload,message.payloadlen);
   if (DEBUG_PRINT) {
-    Serial.print("Message ");
-    Serial.print(++arrivedcount);
-    Serial.print(" arrived: qos ");
-    Serial.print(message.qos);
-    Serial.print(", retained ");
-    Serial.print(message.retained);
-    Serial.print(", dup ");
-    Serial.print(message.dup);
-    Serial.print(", packetid ");
-    Serial.println(message.id);
     Serial.print("Payload ");
-    char* msg = new char[message.payloadlen+1]();
-    memcpy (msg,message.payload,message.payloadlen);
     Serial.println(msg);
+  }
 
-    StaticJsonBuffer<200> jsonBuffer;
-    JsonObject& root = jsonBuffer.parseObject(msg);
+  StaticJsonBuffer<200> jsonBuffer;
+  JsonObject& root = jsonBuffer.parseObject(msg);
 
-    int led = root["led"];    
-    int relay1 = root["relay1"];
-    int relay2 = root["relay2"];
-    float temperature = root["temp"];
+  int led = root["led"];
+  float temperature = root["temp"];
+  int relay1 = root["relay1"];
+  int relay2 = root["relay2"];
 
-    delete msg;
+  delete msg;
 
-    Serial.print("relay1 is : ");
-    Serial.print(relay1);
-    Serial.print(" relay2 is : ");
-    Serial.print(relay2);
-
-    //right now sets {"led":1,"temp":.f} in lambda func to turn on the led
-    //under a certain threshold for the temp set in aws iot rule condition
-    if (led == 1 && temperature > 0.f) {
-      if (DEBUG_PRINT) {
-        Serial.print(" LED is : ");
-        Serial.print(led);
-        Serial.print(" Temp is : ");
-        Serial.println(temperature);
-      }
-      prevTemp = temperature;
-      switchLed(true);
+  //right now sets {"led":1,"temp":.f} in lambda func to turn on the led
+  //under a certain threshold for the temp set in aws iot rule condition
+  if (led == 1 && temperature > 0.f) {
+    if (DEBUG_PRINT) {
+      Serial.print("LED is : ");
+      Serial.print(led);
+      Serial.print(" Temp is : ");
+      Serial.println(temperature);
     }
+    prevTemp = temperature;
+    switchLed(true);
+  }
 
-    if (relay1 == 1) {
-      switchRelay(RELAY1, true);
-      delay(2000);
-      switchRelay(RELAY1, false);
+  //turn on relay1
+  if (relay1 == 1) {
+    if (DEBUG_PRINT) {
+      Serial.print("relay1 is : ");
+      Serial.print(relay1);
     }
+    switchRelay(RELAY1, true);
+    delay(2000);
+    switchRelay(RELAY1, false);
+  }
 
-    if (relay2 == 1) {
-      switchRelay(RELAY2, true);
-      delay(2000);
-      switchRelay(RELAY2, false);
+  //turn on relay2
+  if (relay2 == 1) {
+    if (DEBUG_PRINT) {
+      Serial.print(" relay2 is : ");
+      Serial.print(relay2);
     }
+    switchRelay(RELAY2, true);
+    delay(2000);
+    switchRelay(RELAY2, false);
   }
 }
 
